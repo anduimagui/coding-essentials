@@ -1,0 +1,45 @@
+{
+  "skill_name": "domain-finder",
+  "evals": [
+    {
+      "id": 0,
+      "name": "check-specific-name",
+      "prompt": "i'm thinking of calling a new side project 'bramble' — can you check if bramble.com / .io / .app / .co are free and tell me which one to grab first? just want a quick read, not a deep audit",
+      "expected_output": "Runs a DNS/WHOIS check across the four named TLDs for 'bramble', reports each as available/taken, ranks the available ones with .com first, and gives a single decisive recommendation plus a verify-at-registrar caveat.",
+      "files": [],
+      "expectations": [
+        "Reports an availability status for all four asked domains (bramble.com, bramble.io, bramble.app, bramble.co)",
+        "Does not claim any of the four asked bramble TLDs is available/free (all are taken)",
+        "Includes a single decisive recommendation of which domain to grab first",
+        "Includes a caveat that results are indicative / to verify before buying"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "suggest-and-check",
+      "prompt": "I need a domain for a small AI tool that turns meeting transcripts into action items. The obvious names like 'meetingnotes' or 'actionitems' are probably taken. Can you suggest a few brandable name ideas and then actually check which ones have a free .com or .io? This is for a developer-tools side project so something short and tech-y would be ideal.",
+      "expected_output": "Proposes >=3 brandable candidate base names (variants/compounds, not just the obvious ones), actually checks them across .com and .io using DNS/WHOIS, and presents a ranked shortlist of what's available with a decisive pick and registrar caveat.",
+      "files": [],
+      "expectations": [
+        "Proposes at least 3 brandable candidate base names",
+        "Checks candidates against .com and .io (the user-specified TLDs)",
+        "Reports which candidates are available vs taken",
+        "Includes a single decisive recommendation",
+        "Includes a caveat that results are indicative / to verify before buying"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "short-random-hunt",
+      "prompt": "Hunt for a short unclaimed 5-letter .com domain I could use for a throwaway link-shortener / personal redirect project. Generate some candidates and tell me which ones look like they might actually be available. Don't care about brandability, just short and free.",
+      "expected_output": "Generates multiple 5-letter .com candidates (random or systematic), runs a DNS/WHOIS availability check on them, and reports which look possibly available, clearly noting DNS-only results are indicative and must be confirmed at a registrar.",
+      "files": [],
+      "expectations": [
+        "Generates multiple 5-letter .com candidate domains",
+        "Reports which candidates appear available/unregistered",
+        "Describes the check method used (DNS and/or WHOIS)",
+        "Includes a caveat that results are indicative / to verify before buying"
+      ]
+    }
+  ]
+}

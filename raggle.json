@@ -1,0 +1,5 @@
+{
+  "$schema": "https://raggle.co/config.json",
+  "schemaVersion": 1,
+  "subpaths": ["skills"]
+}
