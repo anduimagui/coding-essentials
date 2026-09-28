@@ -1,153 +1,100 @@
 ---
 name: back-to-main
-description: Move local work from the current branch back onto main while staying on main. Must detect upstream changes that may cause conflicts first. Must not create commits.
+description: Return to main with local work preserved and remote main incorporated, including work already committed or pushed from another checkout. Also use when already on main but behind origin/main. Do not create new branch commits or push.
 ---
 
 # Back to Main
 
-Use this skill when you accidentally did work on a non-`main` branch and want to return to `main` **with all your local work preserved**, but **without committing anything**.
+Finish on local `main` with the latest fetched `origin/main` incorporated and all unpublished local work preserved. Being on `main` is not enough: a change pushed from another branch or worktree must also reach this checkout.
 
-This skill:
+## Guardrails
 
-- Checks whether `origin/main` has new commits that are not in your current branch (these may cause conflicts).
-- If it looks risky, it **warns and stops** before changing anything.
-- If it looks safe, it moves your work onto `main` as **working tree changes** (not commits) and stops as soon as you are back on `main`.
+- Create no new branch commits (including merge commits), push nothing, and rewrite no existing history. A temporary stash is allowed for preservation.
+- Preserve staged, unstaged, and untracked work, including unrelated edits. Keep recovery artifacts until restoration is verified.
+- Remote-ahead commits are work to incorporate, not a reason to stop. Stop for actual conflicts, diverged local `main`, missing refs, or uncertain ownership of changes.
+- A successful fetch or push does not update the local checkout. Verify the final branch, ancestry, and working tree.
 
-## Hard Rules
+## 1. Inspect and fetch
 
-- **Do not make commits.**
-- **Do not push.**
-- **Do not rewrite history** (`reset --hard`, `rebase -i`, etc.).
-- **Stop immediately** once we are on `main` and the local changes are present.
+Read applicable repository instructions and `.envrc`. Use the required direnv and hosting-account context for remote operations; stop if access is blocked. Verify repository identity without displaying credentials.
 
-## Required Preflight
+```bash
+git rev-parse --show-toplevel
+git branch --show-current
+git status --short --branch
+git config user.name
+git config user.email
+git remote -v
+git fetch --prune origin
+git show-ref --verify refs/heads/main
+git show-ref --verify refs/remotes/origin/main
+```
 
-1. Identify repo root:
+If either main ref is missing, ask which branch to use. Record the starting branch, HEAD, staged/unstaged diffs, untracked paths, and existing stashes. If another operation has left conflicts, resolve or report that state before starting another transition.
 
-   ```bash
-   git rev-parse --show-toplevel
-   ```
+Inspect incoming work and overlap with local edits:
 
-2. Check current state:
+```bash
+git log --oneline main..origin/main
+git diff --name-status main...origin/main
+git rev-list --left-right --count main...origin/main
+```
 
-   ```bash
-   git branch --show-current
-   git status --short --branch
-   ```
+If local `main` and `origin/main` have diverged, stop: reconciliation needs an explicitly agreed strategy. A fast-forward, equality, or local main already containing remote main can proceed without new commits.
 
-3. Fetch remote refs:
+## 2. Identify unpublished branch work
 
-   ```bash
-   git fetch --prune origin
-   ```
+Skip this step when already on `main`, but still perform the remote update below.
 
-4. Confirm `main` exists locally and remotely:
+For another starting branch, preserve its ref/HEAD and inspect commits relative to both main refs. If its HEAD is already an ancestor of `main` or `origin/main`, its committed work is already incorporated; do not replay it as local edits.
 
-   ```bash
-   git show-ref --verify --quiet refs/heads/main
-   git show-ref --verify --quiet refs/remotes/origin/main
-   ```
+Otherwise identify only the branch work not already represented on the destination. Check patch-equivalent commits with `git cherry` as well as ancestry, especially after squash merges or cherry-picks. Save the remaining work as a binary-capable patch for restoration as working-tree changes, not new commits. Inspect and validate the patch against the updated destination before applying it. Do not blindly apply the whole merge-base-to-HEAD diff when some changes are already published; stop if the remaining delta cannot be isolated safely.
 
-   If either ref is missing, stop and ask the user what the default branch is.
+Completion: every starting-branch change is accounted for as already included, an unpublished patch, or an explicit blocker.
 
-## Detect Remote Changes That May Cause Conflicts
+## 3. Preserve edits, then update main
 
-We want to know if `origin/main` moved ahead since this branch diverged.
+When local changes exist, create a named stash including untracked files and record its exact object ID. Use that ID for restoration rather than assuming `stash@{0}` remains yours.
 
-1. Find the merge-base between the current `HEAD` and `origin/main`, then count remote commits beyond it:
+```bash
+git stash push -u -m "back-to-main-preserve-local-work"
+git rev-parse refs/stash
+```
 
-   ```bash
-   BASE_REMOTE=$(git merge-base HEAD origin/main)
-   REMOTE_AHEAD=$(git rev-list --count "$BASE_REMOTE"..origin/main)
-   echo "REMOTE_AHEAD=$REMOTE_AHEAD"
-   ```
+Only record a new stash ID if a stash was actually created. Verify the checkout is clean before switching/updating. If concurrent edits appear, stop rather than overwriting them.
 
-2. If `REMOTE_AHEAD` is **greater than 0**:
+Switch only if needed, then incorporate the fetched remote work:
 
-   - Warn the user: "`origin/main` has new commits not in this branch; moving changes back to main may conflict."
-   - Show the commit summary:
+```bash
+git switch main                 # only when not already on main
+git merge --ff-only origin/main
+```
 
-     ```bash
-     git log --oneline --decorate -n 20 "$BASE_REMOTE"..origin/main
-     ```
+If remote main is already contained locally, the merge is a no-op. Otherwise this advances local main to include the published commits. Do not stop merely because the starting branch was already `main`.
 
-   - **Stop**. Do not switch branches, stash, apply patches, or modify files.
+Repository hooks may build before local edits are restored. If a hook fails, inspect HEAD and status: the fast-forward may already have succeeded. Report the build failure separately, and restore saved work before retrying builds. Do not blindly repeat the pull, bypass required hooks, or assume a failed command rolled back Git state.
 
-If `REMOTE_AHEAD=0`, proceed.
+## 4. Restore and verify local work
 
-## Move Work Back Onto `main` (No Commits)
+Apply any validated unpublished branch patch, then restore the recorded stash with `git stash apply --index <saved-stash-id>` so previously staged changes are preserved. Use `apply`, not `pop`, to retain recovery data until verification.
 
-We will convert the branch's committed work into a patch, switch to `main`, apply the patch, then restore any uncommitted/untracked work.
+If patch application or stash restoration conflicts, keep the patch, original branch, and stash; inspect unmerged paths and report exactly what remains. Resolve only within the user's authorization, preserving both the incoming change and unrelated local work. Do not reapply a partially restored stash or equate an empty unmerged-path list with complete restoration.
 
-1. Record the current branch name:
+Compare the final diff and untracked files with the preflight inventory. Every saved edit must be restored or demonstrably included in incoming commits. Drop only this operation's stash after that comparison succeeds; otherwise retain it and report its ID.
 
-   ```bash
-   CURRENT_BRANCH=$(git branch --show-current)
-   ```
+## Done criteria
 
-   If `CURRENT_BRANCH` is already `main`, stop (nothing to do).
+```bash
+git branch --show-current
+git merge-base --is-ancestor origin/main HEAD
+git diff --name-only --diff-filter=U
+git status --short --branch
+```
 
-2. Create a patch representing the branch's committed work relative to `main`:
+Finish only when:
 
-   ```bash
-   BASE_LOCAL=$(git merge-base HEAD main)
-   PATCH_FILE=$(mktemp -t back-to-main.XXXXXX.patch)
-   git diff "$BASE_LOCAL"..HEAD > "$PATCH_FILE"
-   wc -l "$PATCH_FILE"
-   ```
+- The current branch is `main` and contains the fetched `origin/main`.
+- Requested published work is present in this checkout, not just on GitHub or in another worktree.
+- Unpublished work is restored, with no unresolved conflicts or unexplained missing edits.
 
-   Note: this patch only covers committed differences. Uncommitted changes and untracked files are handled by stashing in the next step.
-
-3. If there are local uncommitted or untracked changes, stash them (no commits):
-
-   ```bash
-   if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
-     git stash push -u -m "back-to-main-autostash"
-     STASHED=1
-   else
-     STASHED=0
-   fi
-   ```
-
-4. Switch to `main`:
-
-   ```bash
-   git switch main
-   git status --short --branch
-   ```
-
-5. Apply the committed-work patch (if it has content):
-
-   ```bash
-   if [ -s "$PATCH_FILE" ]; then
-     git apply "$PATCH_FILE"
-   fi
-   ```
-
-   If `git apply` fails, **stop** and report the failing files/hunks. Do not attempt a manual conflict resolution unless the user explicitly asks.
-
-6. Restore stashed changes (if we stashed):
-
-   ```bash
-   if [ "$STASHED" = "1" ]; then
-     git stash pop
-   fi
-   ```
-
-   If `stash pop` reports conflicts, **stop** and report the conflicted files.
-
-7. Confirm we are on `main` and the changes are present:
-
-   ```bash
-   git branch --show-current
-   git status --short --branch
-   ```
-
-## Done Criteria (Stop Point)
-
-Stop as soon as:
-
-- `git branch --show-current` returns `main`, and
-- `git status --short` shows the expected local changes.
-
-Do not proceed to committing, pushing, or running a full test suite unless the user explicitly asks.
+Report the incoming commits, preserved local work, retained recovery artifacts, and any blockers. If a rebuild or runtime verification was requested, do it after restoration and verify the active executable uses this checkout. Otherwise stop without committing, pushing, or running a full test suite.
